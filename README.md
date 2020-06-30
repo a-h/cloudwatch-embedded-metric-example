@@ -54,3 +54,13 @@ $ sls logs -f hello
   "helloFunction_handlerResponseTime": 246.77472
 }
 ```
+
+# Metrics
+
+Aside from the standard Lambda metrics:
+
+<img src="built-in-metrics.png"/>
+
+The new custom metrics are automatically created:
+
+<img src="custom-metrics.png"/>

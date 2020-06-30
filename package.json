@@ -7,6 +7,10 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
+    "@types/node-fetch": "^2.5.7",
+    "aws-embedded-metrics": "^2.0.0",
+    "camel-case": "^4.1.1",
+    "node-fetch": "^2.6.0",
     "source-map-support": "^0.5.10"
   },
   "devDependencies": {

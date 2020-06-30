@@ -1,12 +1,91 @@
-import { APIGatewayProxyHandler } from 'aws-lambda';
-import 'source-map-support/register';
+import {
+  APIGatewayProxyHandler,
+  APIGatewayProxyEvent,
+  Context,
+} from "aws-lambda";
+import { Unit, createMetricsLogger, MetricsLogger } from "aws-embedded-metrics";
+import "source-map-support/register";
+import fetch, { RequestInfo, RequestInit, Response } from "node-fetch";
+import { camelCase } from "camel-case";
 
-export const hello: APIGatewayProxyHandler = async (event, _context) => {
+const helloFunction = async (_event: APIGatewayProxyEvent, _context: Context, metrics: MetricsLogger
+) => {
+  await instrumentedFetch("expected failure", metrics, 1000, "http://httpstat.us/500");
+  await instrumentedFetch("expected OK", metrics, 1000, "https://jsonplaceholder.typicode.com/todos/1");
+
   return {
     statusCode: 200,
-    body: JSON.stringify({
-      message: 'Go Serverless Webpack (Typescript) v1.0! Your function executed successfully!',
-      input: event,
-    }, null, 2),
+    body: JSON.stringify({ ok: true }),
   };
-}
+};
+
+const timeout = async <T>(ms: number, promise: Promise<T>): Promise<T> => 
+  new Promise<T>(async (resolve, reject) => {
+      setTimeout(() => {
+          reject(new Error("timeout"))
+      }, ms);
+      resolve(await promise);
+  });
+
+export const instrumentedFetch = async (
+  name: string,
+  metrics: MetricsLogger,
+  timeoutMS: number,
+  url: RequestInfo,
+  init?: RequestInit
+): Promise<Response> => {
+  const prefix = camelCase(name);
+  const endTimer = startTimer();
+  try {
+    const response = await timeout<Response>(timeoutMS, fetch(url, init));
+    metrics.putMetric(`${prefix}_fetchStatus`, response.status);
+    return response;
+  } catch (e) {
+    metrics.setProperty(`${prefix}_fetchError`, e);
+    metrics.putMetric(`${prefix}_fetchErrors`, 1);
+    throw e;
+  } finally {
+    metrics.putMetric(`${prefix}_fetchResponseTime`, endTimer(), Unit.Milliseconds);
+  }
+};
+
+const startTimer = () => {
+  const start = process.hrtime();
+  return () => {
+    const [secs, nsecs] = process.hrtime(start);
+    return (secs * 1000) + (nsecs / 1000000);
+  };
+};
+
+export const hello: APIGatewayProxyHandler = async (event, context) => {
+  // Name the logging.
+  const prefix = "helloFunction";
+  // Start the timer.
+  const endTimer = startTimer();
+
+  // Use the CloudWatch Metrics Exporter.
+  const metrics = createMetricsLogger();
+  try {
+    // Execute our code.
+    const response = await helloFunction(event, context, metrics);
+
+    // Record the response in the metrics.
+    metrics.putMetric(`${prefix}_handlerStatus`, response.statusCode);
+
+    // Return the response.
+    return response;
+  } catch (e) {
+    // Log if an unchecked error happened.
+    metrics.setProperty(`${prefix}_handlerErrorMessage`, e)
+    metrics.putMetric(`${prefix}_handlerErrors`, 1);
+    throw e;
+  } finally {
+    // Record the time taken no matter what happened.
+    // This isn't really required, because you can track it by the Lambda execution time, or the API
+    // Gateway latency.
+    metrics.putMetric(`${prefix}_handlerResponseTime`, endTimer(), Unit.Milliseconds);
+
+    // Flush all the metrics.
+    await metrics.flush();
+  }
+};
