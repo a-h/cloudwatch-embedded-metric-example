@@ -79,3 +79,9 @@ By adding in the AWS SDK, it's possible to see the results of all downstream AWS
 
 <img src="service-map.png"/>
 
+# HTTP instrumentation
+
+The service map can be updated to include the two outbound HTTP requests, by using the AWS SDK.
+
+<img src="http-trace.png"/>
+

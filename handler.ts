@@ -8,9 +8,12 @@ import "source-map-support/register";
 import fetch, { RequestInfo, RequestInit, Response } from "node-fetch";
 import { camelCase } from "camel-case";
 
-// Import AWS X-Ray and instrument every AWS API call.
-import * as AWSXRay from "aws-xray-sdk";
-const AWS = AWSXRay.captureAWS(require("aws-sdk"));
+import * as uninstrumentedAWS from "aws-sdk"
+import * as AWSXRay from "aws-xray-sdk"
+const AWS = AWSXRay.captureAWS(uninstrumentedAWS);
+
+import * as http from "http";
+AWSXRay.captureHTTPsGlobal(http, true);
 
 const helloFunction = async (_event: APIGatewayProxyEvent, _context: Context, metrics: MetricsLogger
 ) => {
