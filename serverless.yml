@@ -6,7 +6,6 @@ custom:
     webpackConfig: ./webpack.config.js
     includeModules: true
 
-# Add the serverless-webpack plugin
 plugins:
   - serverless-webpack
 
@@ -17,6 +16,14 @@ provider:
     minimumCompressionSize: 1024 # Enable gzip compression for responses > 1 KB
   environment:
     AWS_NODEJS_CONNECTION_REUSE_ENABLED: 1
+  tracing:
+    apiGateway: true
+    lambda: true
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - dynamodb:PutItem
+      Resource: !GetAtt helloTable.Arn
 
 functions:
   hello:
@@ -25,3 +32,17 @@ functions:
       - http:
           method: get
           path: hello
+
+resources:
+  Resources:
+    helloTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: helloTable
+        AttributeDefinitions:
+          - AttributeName: _id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: _id
+            KeyType: HASH
+        BillingMode: PAY_PER_REQUEST
