@@ -64,3 +64,13 @@ Aside from the standard Lambda metrics:
 The new custom metrics are automatically created:
 
 <img src="custom-metrics.png"/>
+
+# Logs
+
+Logs can be analysed using AWS Log Insights. Data can be extracted from these logs on an-adhoc basis, allowing the answers to questions like "how many errors did customer A see?", or "how many times did a customer add both item A and item B to their basket?".
+
+The payment model is based on how much log data is scanned.
+
+<img src="log-insights.png"/>
+
+
