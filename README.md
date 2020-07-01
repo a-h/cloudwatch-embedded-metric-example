@@ -73,4 +73,9 @@ The payment model is based on how much log data is scanned.
 
 <img src="log-insights.png"/>
 
+# AWS X-Ray
+
+By adding in the AWS SDK, it's possible to see the results of all downstream AWS SDK API calls.
+
+<img src="service-map.png"/>
 

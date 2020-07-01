@@ -7,20 +7,23 @@ import { Unit, createMetricsLogger, MetricsLogger } from "aws-embedded-metrics";
 import "source-map-support/register";
 import fetch, { RequestInfo, RequestInit, Response } from "node-fetch";
 import { camelCase } from "camel-case";
-import { DynamoDB } from "aws-sdk";
+
+// Import AWS X-Ray and instrument every AWS API call.
+import * as AWSXRay from "aws-xray-sdk";
+const AWS = AWSXRay.captureAWS(require("aws-sdk"));
 
 const helloFunction = async (_event: APIGatewayProxyEvent, _context: Context, metrics: MetricsLogger
 ) => {
   try {
     await instrumentedFetch("expected failure", metrics, 1000, "http://httpstat.us/500");
   } catch(e) {
-    metrics.setProperty("statServiceErrlr", e);
+    metrics.setProperty("statServiceError", e);
     metrics.putMetric("statServiceFailures", 1);
   }
   await instrumentedFetch("expected OK", metrics, 1000, "https://jsonplaceholder.typicode.com/todos/1");
 
   // Add a Call to DynamoDB to test X-Ray.
-  const client = new DynamoDB.DocumentClient();
+  const client = new AWS.DynamoDB.DocumentClient();
   await client.put({ TableName: "helloTable", Item: { "_id": (new Date()).toISOString() }}).promise();
 
   return {
