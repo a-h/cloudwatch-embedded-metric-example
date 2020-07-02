@@ -15,6 +15,9 @@ const AWS = AWSXRay.captureAWS(uninstrumentedAWS);
 import * as http from "http";
 AWSXRay.captureHTTPsGlobal(http, true);
 
+import * as https from "https";
+AWSXRay.captureHTTPsGlobal(https, true);
+
 const helloFunction = async (_event: APIGatewayProxyEvent, _context: Context, metrics: MetricsLogger
 ) => {
   try {
@@ -28,6 +31,23 @@ const helloFunction = async (_event: APIGatewayProxyEvent, _context: Context, me
   // Add a Call to DynamoDB to test X-Ray.
   const client = new AWS.DynamoDB.DocumentClient();
   await client.put({ TableName: "helloTable", Item: { "_id": (new Date()).toISOString() }}).promise();
+
+  // Send a message to EventBridge to trace through multiple Lambdas.
+  const eventBus = new AWS.EventBridge();
+  const params: AWS.EventBridge.PutEventsRequest = {
+      Entries: [{
+            Source: "cloudwatch-embedded-metric-example",
+            DetailType: "exampleEvent",
+            Detail: JSON.stringify({
+              "message": "Hello...",
+            }),
+        }]
+  };
+  await eventBus.putEvents(params).promise();
+
+  // Call another service via API gateway.
+  // Use standard fetch, to demonstrate that all HTTPS requests are catpured with X-Ray alone.
+  await fetch("https://osqnssr1sl.execute-api.us-east-1.amazonaws.com/dev/world")
 
   return {
     statusCode: 200,

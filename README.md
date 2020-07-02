@@ -85,3 +85,20 @@ The service map can be updated to include the two outbound HTTP requests, by usi
 
 <img src="http-trace.png"/>
 
+# Traversing message queues
+
+If I add some code in to send a message to EventBridge, and an additional handler that receives it, you might expect the visualisation to pass through EventBridge and start the new Lambda.
+
+However, you only see this behaviour from Lambda to API Gateway or another Lambda.
+
+<img src="eventbridge-propagation.png"/>
+
+# Let's prove the Lambda to Lambda works OK
+
+Via the API Gateway, it works well, you can see the trace traverse the two services, however the display is fairly complex. 
+
+The whole thing is triggered by a `curl` request to the API Gateway `dev-cloudwatch-embedded-metric-example/dev`. This triggers the Lambda `cloudwatch-embedded-metric-example-dev-hello` which makes several HTTP requests, including one to an API Gateway endpoint `dev-remote-service/dev`, API Gateway supports tracing, so there's no "Client" segment on the graph for that. However, the `cloudwatch-embedded-metric-example-dev-hello` Lambda also sends a message to EventBridge. EventBridge doesn't support passing the X-Ray tracing information through, so there's a new "Client" on the diagram. This represents the EventBridge message sent by `cloudwatch-embedded-metric-example-dev-hello` triggering the `remote-service-dev-worldEvent` Lambda.
+
+X-Ray makes something of a hash of rendering what's going on:
+
+<img src="cross-api-gateway-trace.png"/>
