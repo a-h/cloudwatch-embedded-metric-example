@@ -99,6 +99,10 @@ Via the API Gateway, it works well, you can see the trace traverse the two servi
 
 The whole thing is triggered by a `curl` request to the API Gateway `dev-cloudwatch-embedded-metric-example/dev`. This triggers the Lambda `cloudwatch-embedded-metric-example-dev-hello` which makes several HTTP requests, including one to an API Gateway endpoint `dev-remote-service/dev`, API Gateway supports tracing, so there's no "Client" segment on the graph for that. However, the `cloudwatch-embedded-metric-example-dev-hello` Lambda also sends a message to EventBridge. EventBridge doesn't support passing the X-Ray tracing information through, so there's a new "Client" on the diagram. This represents the EventBridge message sent by `cloudwatch-embedded-metric-example-dev-hello` triggering the `remote-service-dev-worldEvent` Lambda.
 
-X-Ray makes something of a hash of rendering what's going on:
+However, the new CloudWatch console makes a much better job.
+
+<img src="cloudwatch-trace.png"/>
+
+The old X-Ray interface makes something of a hash of rendering what's going on:
 
 <img src="cross-api-gateway-trace.png"/>
