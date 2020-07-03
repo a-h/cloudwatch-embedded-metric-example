@@ -106,3 +106,10 @@ However, the new CloudWatch console makes a much better job.
 The old X-Ray interface makes something of a hash of rendering what's going on:
 
 <img src="cross-api-gateway-trace.png"/>
+
+# References
+
+https://github.com/aws/aws-xray-sdk-node/issues/208
+https://github.com/aws/aws-xray-sdk-go/issues/218
+https://docs.aws.amazon.com/xray/latest/devguide/xray-services-sqs.html
+
