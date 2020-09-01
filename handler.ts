@@ -7,15 +7,29 @@ import { createMetricsLogger, MetricsLogger } from "aws-embedded-metrics";
 import { Subsegment } from "aws-xray-sdk";
 import "source-map-support/register";
 
+// Capture AWS SDK calls in X-Ray.
 import * as uninstrumentedAWS from "aws-sdk";
 import * as AWSXRay from "aws-xray-sdk";
 const AWS = AWSXRay.captureAWS(uninstrumentedAWS);
 
+// Support capturing HTTP requests in X-Ray.
 import * as http from "http";
 AWSXRay.captureHTTPsGlobal(http, true);
 
 import * as https from "https";
 AWSXRay.captureHTTPsGlobal(https, true);
+
+// Configure logging.
+import * as winston from "winston";
+
+const logger = winston.createLogger({
+  level: "info",
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.json()
+  ),
+  transports: new winston.transports.Console(),
+});
 
 // Make sure you capture HTTPS before you import axios.
 import axios from "axios";
@@ -33,7 +47,8 @@ const helloFunction = async (
         try {
           await axios.get("http://httpstat.us/500");
         } catch (err) {
-          console.log("it's ok for this to fail.");
+          logger.warn("httpstat.us gave error, as expected", { status: 500 });
+          // {"status":500,"level":"warn","message":"httpstat.us gave error, as expected","timestamp":"2020-09-01T18:33:30.296Z"}
         }
         await axios.get("https://jsonplaceholder.typicode.com/todos/1");
         metrics.putMetric("exampleApiCallsMade", 2);
@@ -101,17 +116,16 @@ const helloFunction = async (
     parent
   );
 
-  // Call another service via API gateway.
-
   return {
     statusCode: 200,
     body: JSON.stringify({ ok: true }),
   };
 };
 
-// We need to create a subsegment, because in AWS Lambda, the top-level X-Ray segment is readonly.
 export const hello: APIGatewayProxyHandler = async (event, context) => {
   const metrics = createMetricsLogger();
+
+  // We need to create a subsegment, because in AWS Lambda, the top-level X-Ray segment is readonly.
   return await AWSXRay.captureAsyncFunc(
     "handler",
     async (segment) => {
