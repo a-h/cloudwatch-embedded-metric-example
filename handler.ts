@@ -3,13 +3,12 @@ import {
   APIGatewayProxyEvent,
   Context,
 } from "aws-lambda";
-import { Unit, createMetricsLogger, MetricsLogger } from "aws-embedded-metrics";
+import { createMetricsLogger, MetricsLogger } from "aws-embedded-metrics";
+import { Subsegment } from "aws-xray-sdk";
 import "source-map-support/register";
-import fetch, { RequestInfo, RequestInit, Response } from "node-fetch";
-import { camelCase } from "camel-case";
 
-import * as uninstrumentedAWS from "aws-sdk"
-import * as AWSXRay from "aws-xray-sdk"
+import * as uninstrumentedAWS from "aws-sdk";
+import * as AWSXRay from "aws-xray-sdk";
 const AWS = AWSXRay.captureAWS(uninstrumentedAWS);
 
 import * as http from "http";
@@ -18,36 +17,91 @@ AWSXRay.captureHTTPsGlobal(http, true);
 import * as https from "https";
 AWSXRay.captureHTTPsGlobal(https, true);
 
-const helloFunction = async (_event: APIGatewayProxyEvent, _context: Context, metrics: MetricsLogger
+// Make sure you capture HTTPS before you import axios.
+import axios from "axios";
+
+const helloFunction = async (
+  _event: APIGatewayProxyEvent,
+  _context: Context,
+  metrics: MetricsLogger,
+  parent: Subsegment
 ) => {
-  try {
-    await instrumentedFetch("expected failure", metrics, 1000, "http://httpstat.us/500");
-  } catch(e) {
-    metrics.setProperty("statServiceError", e);
-    metrics.putMetric("statServiceFailures", 1);
-  }
-  await instrumentedFetch("expected OK", metrics, 1000, "https://jsonplaceholder.typicode.com/todos/1");
+  await AWSXRay.captureAsyncFunc(
+    "makeApiCalls",
+    async (segment) => {
+      try {
+        try {
+          await axios.get("http://httpstat.us/500");
+        } catch (err) {
+          console.log("it's ok for this to fail.");
+        }
+        await axios.get("https://jsonplaceholder.typicode.com/todos/1");
+        metrics.putMetric("exampleApiCallsMade", 2);
+      } catch (err) {
+        segment.close(err);
+        throw err;
+      } finally {
+        segment.close();
+      }
+    },
+    parent
+  );
 
-  // Add a Call to DynamoDB to test X-Ray.
-  const client = new AWS.DynamoDB.DocumentClient();
-  await client.put({ TableName: "helloTable", Item: { "_id": (new Date()).toISOString() }}).promise();
+  await AWSXRay.captureAsyncFunc(
+    "doDatabaseAndEventWork",
+    async (segment) => {
+      try {
+        // Add a Call to DynamoDB to test X-Ray.
+        const client = new AWS.DynamoDB.DocumentClient();
+        await client
+          .put({
+            TableName: "helloTable",
+            Item: { _id: new Date().toISOString() },
+          })
+          .promise();
 
-  // Send a message to EventBridge to trace through multiple Lambdas.
-  const eventBus = new AWS.EventBridge();
-  const params: AWS.EventBridge.PutEventsRequest = {
-      Entries: [{
-            Source: "cloudwatch-embedded-metric-example",
-            DetailType: "exampleEvent",
-            Detail: JSON.stringify({
-              "message": "Hello...",
-            }),
-        }]
-  };
-  await eventBus.putEvents(params).promise();
+        // Send a message to EventBridge to trace through multiple Lambdas.
+        const eventBus = new AWS.EventBridge();
+        const params: AWS.EventBridge.PutEventsRequest = {
+          Entries: [
+            {
+              Source: "cloudwatch-embedded-metric-example",
+              DetailType: "exampleEvent",
+              Detail: JSON.stringify({
+                message: "Hello...",
+              }),
+            },
+          ],
+        };
+        await eventBus.putEvents(params).promise();
+      } catch (err) {
+        segment.close(err);
+        throw err;
+      } finally {
+        segment.close();
+      }
+    },
+    parent
+  );
+
+  await AWSXRay.captureAsyncFunc(
+    "callWorld",
+    async (segment) => {
+      try {
+        await axios.get(
+          "https://osqnssr1sl.execute-api.us-east-1.amazonaws.com/dev/world"
+        );
+      } catch (err) {
+        segment.close(err);
+        throw err;
+      } finally {
+        segment.close();
+      }
+    },
+    parent
+  );
 
   // Call another service via API gateway.
-  // Use standard fetch, to demonstrate that all HTTPS requests are catpured with X-Ray alone.
-  await fetch("https://osqnssr1sl.execute-api.us-east-1.amazonaws.com/dev/world")
 
   return {
     statusCode: 200,
@@ -55,73 +109,27 @@ const helloFunction = async (_event: APIGatewayProxyEvent, _context: Context, me
   };
 };
 
-const timeout = async <T>(ms: number, promise: Promise<T>): Promise<T> => 
-  new Promise<T>(async (resolve, reject) => {
-      setTimeout(() => {
-          reject(new Error("timeout"))
-      }, ms);
-      resolve(await promise);
-  });
-
-export const instrumentedFetch = async (
-  name: string,
-  metrics: MetricsLogger,
-  timeoutMS: number,
-  url: RequestInfo,
-  init?: RequestInit
-): Promise<Response> => {
-  const prefix = camelCase(name);
-  const endTimer = startTimer();
-  try {
-    const response = await timeout<Response>(timeoutMS, fetch(url, init));
-    metrics.putMetric(`${prefix}_fetchStatus`, response.status);
-    return response;
-  } catch (e) {
-    metrics.setProperty(`${prefix}_fetchError`, e);
-    metrics.putMetric(`${prefix}_fetchErrors`, 1);
-    throw e;
-  } finally {
-    metrics.putMetric(`${prefix}_fetchResponseTime`, endTimer(), Unit.Milliseconds);
-  }
-};
-
-const startTimer = () => {
-  const start = process.hrtime();
-  return () => {
-    const [secs, nsecs] = process.hrtime(start);
-    return (secs * 1000) + (nsecs / 1000000);
-  };
-};
-
+// We need to create a subsegment, because in AWS Lambda, the top-level X-Ray segment is readonly.
 export const hello: APIGatewayProxyHandler = async (event, context) => {
-  // Name the logging.
-  const prefix = "helloFunction";
-  // Start the timer.
-  const endTimer = startTimer();
-
-  // Use the CloudWatch Metrics Exporter.
   const metrics = createMetricsLogger();
-  try {
-    // Execute our code.
-    const response = await helloFunction(event, context, metrics);
-
-    // Record the response in the metrics.
-    metrics.putMetric(`${prefix}_handlerStatus`, response.statusCode);
-
-    // Return the response.
-    return response;
-  } catch (e) {
-    // Log if an unchecked error happened.
-    metrics.setProperty(`${prefix}_handlerErrorMessage`, e)
-    metrics.putMetric(`${prefix}_handlerErrors`, 1);
-    throw e;
-  } finally {
-    // Record the time taken no matter what happened.
-    // This isn't really required, because you can track it by the Lambda execution time, or the API
-    // Gateway latency.
-    metrics.putMetric(`${prefix}_handlerResponseTime`, endTimer(), Unit.Milliseconds);
-
-    // Flush all the metrics.
-    await metrics.flush();
-  }
+  return await AWSXRay.captureAsyncFunc(
+    "handler",
+    async (segment) => {
+      // Annotate the segment with metadata to allow it to be searched.
+      segment.addAnnotation("userId", "user123");
+      try {
+        return await helloFunction(event, context, metrics, segment);
+      } catch (err) {
+        segment.close(err);
+        throw err;
+      } finally {
+        // Metrics and segments MUST be closed.
+        metrics.flush();
+        if (!segment.isClosed()) {
+          segment.close();
+        }
+      }
+    },
+    AWSXRay.getSegment()
+  );
 };
